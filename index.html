@@ -1286,15 +1286,28 @@
 
   function confirmarResultado() {
     const mesa = state.mesas[mesaIdx];
-    const pts = Math.max(0, +document.getElementById('puntosInput').value || 0);
+    const ptsIngresados = Math.max(0, +document.getElementById('puntosInput').value || 0);
     const ladoGanador = ganadorSel === 0 ? mesa.ladoA : mesa.ladoB;
     const numeroMano = mesa.historial.length + 1;
+    const objetivo = state.torneo.puntaje;
+
+    // El marcador nunca pasa del puntaje objetivo — si la mano alcanza o supera
+    // lo que falta para llegar a 100 (o el objetivo que se haya puesto), solo
+    // se acredita lo que falta, no el valor completo de la mano.
+    const puntajeActual = ganadorSel === 0 ? mesa.puntajeA : mesa.puntajeB;
+    const espacioDisponible = Math.max(0, objetivo - puntajeActual);
+    const pts = Math.min(ptsIngresados, espacioDisponible);
+    const fueLimitado = pts < ptsIngresados;
 
     if (ganadorSel === 0) mesa.puntajeA += pts; else mesa.puntajeB += pts;
-    mesa.historial.push({ numero: numeroMano, descripcion: `${ladoGanador.nombre} ganó por ${tipoSel} (+${pts} para sus 2 jugadores)`, puntos: pts });
+    mesa.historial.push({
+      numero: numeroMano,
+      descripcion: `${ladoGanador.nombre} ganó por ${tipoSel} (+${pts} para sus 2 jugadores)${fueLimitado ? ` — se limitó desde ${ptsIngresados} para no pasar de ${objetivo}` : ''}`,
+      puntos: pts,
+    });
 
     // Auto-cierre al llegar al puntaje objetivo — igual que fn_procesar_mano en Supabase.
-    if (mesa.puntajeA >= state.torneo.puntaje || mesa.puntajeB >= state.torneo.puntaje) {
+    if (mesa.puntajeA >= objetivo || mesa.puntajeB >= objetivo) {
       mesa.finalizada = true;
       mesa.ganadorLado = mesa.puntajeA > mesa.puntajeB ? 0 : 1;
     }
@@ -1305,7 +1318,10 @@
     if (!mesa.finalizada) {
       const toast = document.getElementById('toastOk');
       if (toast) {
-        toast.innerHTML = `<div class="toast ok">✓ Mano ${numeroMano} guardada — ${pts} pts para ${ladoGanador.nombre}</div>`;
+        const msg = fueLimitado
+          ? `✓ Mano ${numeroMano} guardada — se limitó a ${pts} pts (de ${ptsIngresados} ingresados) para no pasar de ${objetivo}`
+          : `✓ Mano ${numeroMano} guardada — ${pts} pts para ${ladoGanador.nombre}`;
+        toast.innerHTML = `<div class="toast ok">${msg}</div>`;
         setTimeout(() => { const t = document.getElementById('toastOk'); if (t) t.innerHTML = ''; }, 2500);
       }
     }
