@@ -235,6 +235,31 @@
   .rank-name{font-weight:600;}
   .rank-col-record{font-family:var(--mono); font-size:13px; color:var(--bone-dim); text-align:right;}
   .rank-col-dif{font-family:var(--mono); font-size:13.5px; font-weight:700; text-align:right;}
+  .rank-row-top{background:rgba(201,162,39,0.05); margin:0 -14px; padding-left:14px; padding-right:14px; border-radius:8px;}
+  .rank-medalla{margin-right:6px;}
+
+  /* -------- Torneo culminado -------- */
+  .torneo-culminado{text-align:center; max-width:640px; margin-bottom:28px; animation:culminadoEntrada .5s ease-out;}
+  @keyframes culminadoEntrada{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:translateY(0);}}
+  .torneo-culminado .trofeo{font-size:50px; margin-bottom:8px; display:inline-block; animation:trofeoPulso 1.8s ease-in-out infinite;}
+  @keyframes trofeoPulso{0%,100%{transform:scale(1);} 50%{transform:scale(1.1);}}
+  @media (prefers-reduced-motion: reduce){
+    .torneo-culminado{animation:none;}
+    .torneo-culminado .trofeo{animation:none;}
+  }
+  .torneo-culminado h2{font-family:var(--display); font-weight:800; font-size:26px; text-transform:uppercase;
+    color:var(--gold-bright); margin-bottom:8px;}
+  .torneo-culminado p{color:var(--bone-dim); font-size:13.5px; margin-bottom:26px;}
+
+  .podio{display:flex; align-items:flex-end; justify-content:center; gap:14px; flex-wrap:wrap;}
+  .podio-puesto{background:var(--felt); border:1px solid rgba(228,224,214,0.1); border-radius:16px;
+    padding:20px 24px; min-width:150px;}
+  .podio-puesto.primero{padding-top:26px; border-color:rgba(201,162,39,0.4); background:rgba(201,162,39,0.08);}
+  .podio-puesto .medalla{font-size:32px; margin-bottom:8px;}
+  .podio-puesto.primero .medalla{font-size:42px;}
+  .podio-nombre{font-weight:700; font-size:15px;}
+  .podio-puesto.primero .podio-nombre{font-size:18px; color:var(--gold-bright);}
+  .podio-stat{font-family:var(--mono); font-size:11.5px; color:var(--bone-dim); margin-top:4px;}
   @media (max-width:480px){
     .rank-grid{grid-template-columns:20px 1fr 92px 66px; gap:6px;}
     .rank-head span{font-size:9px;}
@@ -470,6 +495,7 @@
     statsEntidad: {},       // acumulado por RONDA jugada: jugadorId (individual) o equipoId (pareja_fija) -> {nombre, partidasJugadas, partidasGanadas, diferencial}
     ultimaPareja: {},       // individual_rotativo: jugadorId -> id del último compañero (evitar repetir seguido)
     torneosPasados: [],     // snapshots de torneos anteriores (nombre, modalidad, ranking final) — ver sección Torneos
+    rondaArchivadaNum: 0,   // último número de ronda ya sumado a statsEntidad — evita sumar una ronda dos veces
   };
   const ronda = { duracionSegundos: 1800, iniciadaEn: null, pausadaEn: null };
 
@@ -688,6 +714,7 @@
     state.equiposFijos = [];
     state.mesas = [];
     state.rondaNum = 0;
+    state.rondaArchivadaNum = 0;
     state.calendarioRR = null;
     state.statsEntidad = {};
     state.ultimaPareja = {};
@@ -904,7 +931,7 @@
     };
     state.jugadores = ['Ana Ramírez', 'Luis Gómez', 'Carla Torres', 'Pedro Díaz']
       .map(nombre => ({ id: 'j' + nextJugadorId++, nombre }));
-    state.equiposFijos = []; state.mesas = []; state.rondaNum = 0;
+    state.equiposFijos = []; state.mesas = []; state.rondaNum = 0; state.rondaArchivadaNum = 0;
     state.calendarioRR = null; state.statsEntidad = {}; state.ultimaPareja = {};
     generarCruces();
   }
@@ -1011,19 +1038,40 @@
     }
   }
 
-  function generarSiguienteRonda() {
-    if (!todasFinalizadas()) return;
+  // Archiva los resultados de la ronda actual en el ranking acumulado apenas
+  // TODAS sus mesas quedan finalizadas — no depende de que alguien haga clic
+  // en "Generar siguiente ronda" (ese botón se desactiva en la última ronda,
+  // así que si el archivado dependiera de él, la última ronda nunca se
+  // sumaría al ranking). Idempotente vía rondaArchivadaNum: nunca suma la
+  // misma ronda dos veces aunque se llame varias veces seguidas.
+  function archivarRondaSiCompleta() {
+    if (!todasFinalizadas()) return false;
+    if (state.rondaArchivadaNum === state.rondaNum) return false;
     state.mesas.forEach(m => {
       const ganoA = m.ganadorLado === 0;
       actualizarStatsLado(m.ladoA, ganoA, m.puntajeA - m.puntajeB);
       actualizarStatsLado(m.ladoB, !ganoA, m.puntajeB - m.puntajeA);
     });
+    state.rondaArchivadaNum = state.rondaNum;
+    return true;
+  }
+
+  function torneoCompleto() {
+    const totRondas = totalRondas();
+    return !!(totRondas && state.rondaNum >= totRondas && todasFinalizadas());
+  }
+
+  function generarSiguienteRonda() {
+    if (!todasFinalizadas()) return;
+    archivarRondaSiCompleta();
 
     const siguienteNum = state.rondaNum + 1;
     const totRondas = totalRondas();
     if (totRondas && siguienteNum > totRondas) {
-      alert(`Ya se jugaron las ${totRondas} rondas de este torneo. El torneo está completo — revisa el ranking final.`);
+      // El torneo ya está completo — no hay nada más que generar. El ranking
+      // final y el podio se muestran solos en "Mesas en vivo" (torneoCompleto()).
       guardarEstado();
+      renderMesasVivo();
       return;
     }
 
@@ -1067,17 +1115,26 @@
       return;
     }
 
+    // Red de seguridad: si por cualquier motivo se llega aquí con la ronda
+    // completa sin archivar (por ejemplo, al recargar la página a mitad de
+    // camino), se archiva ahora — así el ranking nunca se queda atrás.
+    if (archivarRondaSiCompleta()) guardarEstado();
+
     cronoWrap.style.display = '';
     const totRondas = totalRondas();
     document.getElementById('rondaLabel').textContent = 'Ronda ' + state.rondaNum + (totRondas ? ' / ' + totRondas : '');
 
+    if (torneoCompleto()) {
+      cronoWrap.style.display = 'none';
+      contenido.innerHTML = renderTorneoCulminadoHtml();
+      return;
+    }
+
     const pendientes = mesasPendientes();
-    const esUltimaRonda = totRondas && state.rondaNum >= totRondas;
     contenido.innerHTML = `
       <div class="ronda-status">
-        <button class="btn btn-gold" id="btnSiguienteRonda" ${todasFinalizadas() && !esUltimaRonda ? '' : 'disabled'}>Generar siguiente ronda</button>
+        <button class="btn btn-gold" id="btnSiguienteRonda" ${todasFinalizadas() ? '' : 'disabled'}>Generar siguiente ronda</button>
         ${!todasFinalizadas() ? `<span class="ronda-pendientes">${pendientes} mesa(s) todavía en curso — deben cerrarse antes de pasar de ronda</span>` : ''}
-        ${todasFinalizadas() && esUltimaRonda ? `<span class="ronda-pendientes">Torneo completo — se jugaron las ${totRondas} rondas.</span>` : ''}
       </div>
       <div class="mesa-tabs" id="mesaTabs"></div>
       <div id="mesaDetalle"></div>`;
@@ -1086,6 +1143,34 @@
 
     renderCrono();
     renderMesaActual();
+  }
+
+  function renderTorneoCulminadoHtml() {
+    const filas = rankingOrdenado();
+    const nombreCol = nombreColumnaRanking();
+    const primero = filas[0], segundo = filas[1];
+    const statTxt = f => f ? `${f.partidasGanadas} — ${f.partidasJugadas - f.partidasGanadas} · ${f.diferencial >= 0 ? '+' : ''}${f.diferencial}` : 'Sin datos';
+
+    return `
+      <div class="torneo-culminado">
+        <div class="trofeo">🏆</div>
+        <h2>¡Torneo culminado!</h2>
+        <p>Se jugaron las ${state.rondaNum} ronda(s) de "${state.torneo.nombre}" — así quedó la tabla.</p>
+        <div class="podio">
+          <div class="podio-puesto segundo">
+            <div class="medalla">🥈</div>
+            <div class="podio-nombre">${segundo?.nombre ?? '—'}</div>
+            <div class="podio-stat">${statTxt(segundo)}</div>
+          </div>
+          <div class="podio-puesto primero">
+            <div class="medalla">🥇</div>
+            <div class="podio-nombre">${primero?.nombre ?? '—'}</div>
+            <div class="podio-stat">${statTxt(primero)}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="max-width:640px;">${construirTablaRankingHtml(filas, nombreCol)}</div>
+      <div class="field-hint" style="max-width:640px;">Este torneo ya no acepta más rondas. Para empezar otro, ve a "Torneos" — este quedará guardado en "Torneos pasados".</div>`;
   }
 
   function seleccionarMesa(i) {
@@ -1280,25 +1365,17 @@
   // RANKING — acumulado real de rondas jugadas (state.statsEntidad),
   // no solo el marcador de la ronda actual.
   // =========================================================
-  function renderRanking() {
-    document.getElementById('rankingTitulo').textContent =
-      state.torneo?.modalidad === 'individual_rotativo' ? 'Ranking — por jugador' : 'Ranking — por pareja';
-
-    const el = document.getElementById('rankingContenido');
-    const entidades = Object.values(state.statsEntidad);
-    if (entidades.length === 0) {
-      el.innerHTML = `
-        <div class="empty-state">
-          <div class="icon"><svg viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="80" height="80" rx="18" fill="#0F2924"/><rect x="18" y="14" width="52" height="60" rx="10" fill="#E4E0D6"/><line x1="24" y1="44" x2="64" y2="44" stroke="#163832" stroke-width="2" opacity="0.3"/><circle cx="34" cy="27" r="4.2" fill="#C9A227"/><circle cx="54" cy="27" r="4.2" fill="#C9A227"/><circle cx="34" cy="61" r="4.2" fill="#163832"/><circle cx="54" cy="61" r="4.2" fill="#163832"/></svg></div>
-          <h2>Sin datos todavía</h2>
-          <p>El ranking se llena cuando se cierra al menos una mesa y se pasa de ronda.</p>
-        </div>`;
-      return;
-    }
-    const nombreCol = state.torneo?.modalidad === 'individual_rotativo' ? 'Jugador' : 'Pareja';
-    const filas = [...entidades].sort((a, b) => b.diferencial - a.diferencial);
-    el.innerHTML = `<div class="card" style="max-width:640px;">
-      <div class="rank-grid rank-head">
+  // -- Ranking: helpers compartidos entre la pestaña "Ranking" y la pantalla
+  // de torneo culminado, para no mantener dos tablas por separado. --
+  function nombreColumnaRanking() {
+    return state.torneo?.modalidad === 'individual_rotativo' ? 'Jugador' : 'Pareja';
+  }
+  function rankingOrdenado() {
+    return Object.values(state.statsEntidad).sort((a, b) => b.diferencial - a.diferencial);
+  }
+  const MEDALLAS = ['🥇', '🥈', '🥉'];
+  function construirTablaRankingHtml(filas, nombreCol) {
+    return `<div class="rank-grid rank-head">
         <span></span>
         <span>${nombreCol}</span>
         <span style="text-align:right;">Ganadas — Perdidas</span>
@@ -1307,16 +1384,35 @@
       filas.map((f, i) => {
         const perdidas = f.partidasJugadas - f.partidasGanadas;
         const difPositivo = f.diferencial >= 0;
+        const medalla = MEDALLAS[i] ? `<span class="rank-medalla">${MEDALLAS[i]}</span>` : '';
         return `
-        <div class="rank-grid rank-row-grid">
+        <div class="rank-grid rank-row-grid ${i < 3 ? 'rank-row-top' : ''}">
           <span class="rank-pos">${i + 1}</span>
-          <span class="rank-name">${f.nombre}</span>
+          <span class="rank-name">${medalla}${f.nombre}</span>
           <span class="rank-col-record">${f.partidasGanadas} — ${perdidas}</span>
           <span class="rank-col-dif" style="color:${difPositivo ? 'var(--green-ok)' : 'var(--oxblood)'}">${difPositivo ? '+' : ''}${f.diferencial}</span>
         </div>`;
-      }).join('') +
-      `</div>
-      <div class="field-hint" style="max-width:640px;">"Ganadas — Perdidas" son partidas completas ganadas o perdidas por ${nombreCol.toLowerCase()}. "Diferencial" es la suma de puntos a favor menos puntos en contra en todas las rondas jugadas. Se actualiza al generar cada nueva ronda.</div>`;
+      }).join('');
+  }
+
+  function renderRanking() {
+    document.getElementById('rankingTitulo').textContent =
+      state.torneo?.modalidad === 'individual_rotativo' ? 'Ranking — por jugador' : 'Ranking — por pareja';
+
+    const el = document.getElementById('rankingContenido');
+    const filas = rankingOrdenado();
+    if (filas.length === 0) {
+      el.innerHTML = `
+        <div class="empty-state">
+          <div class="icon"><svg viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="80" height="80" rx="18" fill="#0F2924"/><rect x="18" y="14" width="52" height="60" rx="10" fill="#E4E0D6"/><line x1="24" y1="44" x2="64" y2="44" stroke="#163832" stroke-width="2" opacity="0.3"/><circle cx="34" cy="27" r="4.2" fill="#C9A227"/><circle cx="54" cy="27" r="4.2" fill="#C9A227"/><circle cx="34" cy="61" r="4.2" fill="#163832"/><circle cx="54" cy="61" r="4.2" fill="#163832"/></svg></div>
+          <h2>Sin datos todavía</h2>
+          <p>El ranking se llena apenas se cierra la primera mesa.</p>
+        </div>`;
+      return;
+    }
+    const nombreCol = nombreColumnaRanking();
+    el.innerHTML = `<div class="card" style="max-width:640px;">${construirTablaRankingHtml(filas, nombreCol)}</div>
+      <div class="field-hint" style="max-width:640px;">"Ganadas — Perdidas" son partidas completas ganadas o perdidas por ${nombreCol.toLowerCase()}. "Diferencial" es la suma de puntos a favor menos puntos en contra en todas las rondas jugadas. Se actualiza apenas se cierra cada mesa.</div>`;
   }
 
   // Arranque: la app real no se muestra hasta iniciar sesión con un código válido (ver login-gate).
