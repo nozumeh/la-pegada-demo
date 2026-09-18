@@ -115,6 +115,9 @@
     text-transform:uppercase; letter-spacing:0.5px; padding:4px 10px; border-radius:20px; margin-top:2px;}
   .estado-pill.programado{background:rgba(228,224,214,0.1); color:var(--bone-dim);}
   .estado-pill.en_curso{background:rgba(76,139,107,0.18); color:var(--green-ok);}
+  .ronda-pill{display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px;
+    text-transform:uppercase; letter-spacing:0.5px; padding:4px 10px; border-radius:20px; margin-top:2px;
+    margin-left:8px; background:rgba(201,162,39,0.18); color:var(--gold-bright);}
   .badge-ejemplo{display:inline-block; font-family:var(--mono); font-size:10px; text-transform:uppercase;
     letter-spacing:0.5px; background:rgba(201,162,39,0.18); color:var(--gold-bright); border-radius:20px;
     padding:3px 9px; vertical-align:middle; margin-left:4px;}
@@ -197,7 +200,8 @@
 
   .puntos-row{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:24px;}
   .puntos-input{background:rgba(228,224,214,0.05); border:1.5px solid rgba(228,224,214,0.15); border-radius:10px;
-    padding:12px 16px; font-family:var(--mono); font-size:22px; font-weight:600; color:var(--bone); width:110px; text-align:center;}
+    padding:12px 14px; font-family:var(--mono); font-size:22px; font-weight:600; color:var(--bone); width:150px; text-align:center;}
+  .puntos-input::placeholder{font-size:11.5px; font-weight:400; color:var(--slate); font-family:var(--body); letter-spacing:0;}
   .puntos-quick{display:flex; gap:6px;}
   .qbtn{background:rgba(228,224,214,0.05); border:1px solid rgba(228,224,214,0.15); border-radius:8px;
     padding:8px 12px; font-family:var(--mono); font-size:12.5px; color:var(--bone-dim); transition:all .12s;}
@@ -222,11 +226,19 @@
   .hist-pts{font-family:var(--mono); color:var(--bone-dim);}
   .hist-empty{color:var(--slate); font-size:12.5px; padding:4px 0;}
 
-  .rank-row{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid rgba(228,224,214,0.06); font-size:13.5px;}
-  .rank-row:last-child{border-bottom:none;}
-  .rank-pos{font-family:var(--mono); font-weight:600; color:var(--gold-bright); width:22px;}
-  .rank-name{flex:1; font-weight:500;}
-  .rank-stat{font-family:var(--mono); font-size:12px; color:var(--bone-dim);}
+  .rank-grid{display:grid; grid-template-columns:24px 1fr 120px 90px; align-items:center; gap:8px;}
+  .rank-head{font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.5px;
+    color:var(--slate); padding-bottom:10px; margin-bottom:2px; border-bottom:1px solid rgba(228,224,214,0.1);}
+  .rank-row-grid{padding:12px 0; border-bottom:1px solid rgba(228,224,214,0.06); font-size:13.5px;}
+  .rank-row-grid:last-child{border-bottom:none;}
+  .rank-pos{font-family:var(--mono); font-weight:600; color:var(--gold-bright);}
+  .rank-name{font-weight:600;}
+  .rank-col-record{font-family:var(--mono); font-size:13px; color:var(--bone-dim); text-align:right;}
+  .rank-col-dif{font-family:var(--mono); font-size:13.5px; font-weight:700; text-align:right;}
+  @media (max-width:480px){
+    .rank-grid{grid-template-columns:20px 1fr 92px 66px; gap:6px;}
+    .rank-head span{font-size:9px;}
+  }
 
   /* -------- Header y navegación móvil (la sidebar se oculta por debajo de 820px) -------- */
   .mobile-topbar{display:none; align-items:center; gap:9px; padding:14px 18px;
@@ -381,13 +393,21 @@
         </div>
         <div class="field-row">
           <div class="field">
+            <label>Número de rondas</label>
+            <input type="number" id="fNumeroRondas" min="1" value="7">
+            <div class="field-hint" id="numeroRondasHint"></div>
+          </div>
+          <div class="field">
             <label>Puntaje objetivo por partida</label>
             <input type="number" id="fPuntaje" min="1" value="100">
           </div>
+        </div>
+        <div class="field-row">
           <div class="field">
             <label>Fecha y hora programada</label>
             <input type="datetime-local" id="fFecha">
           </div>
+          <div></div>
         </div>
         <div style="display:flex; gap:10px; margin-top:6px;">
           <button class="btn btn-gold" id="btnCrearTorneo">Crear torneo</button>
@@ -523,6 +543,14 @@
   function capacidadCompleta() { return state.torneo && state.jugadores.length >= jugadoresNecesarios(); }
   function primerNombre(nombreCompleto) { return nombreCompleto.split(' ')[0]; }
 
+  // Total de rondas del torneo. En todos-contra-todos lo decide el calendario
+  // (depende de cuántas parejas se inscribieron), no el campo del formulario.
+  function totalRondas() {
+    if (!state.torneo) return null;
+    if (state.torneo.formato === 'todos_contra_todos' && state.calendarioRR) return state.calendarioRR.length;
+    return state.torneo.numeroRondas || null;
+  }
+
   function fmtFecha(iso) {
     if (!iso) return '—';
     return new Date(iso).toLocaleString('es-VE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -568,15 +596,17 @@
       return;
     }
     const t = state.torneo;
+    const totRondas = totalRondas();
     el.innerHTML = `
       <div class="torneo-card">
         <div class="nombre">${t.nombre}${t.esEjemplo ? ' <span class="badge-ejemplo">Ejemplo</span>' : ''}</div>
         <span class="estado-pill ${t.estado}">${t.estado === 'en_curso' ? 'En curso' : 'Programado'}</span>
+        ${state.rondaNum > 0 ? `<span class="ronda-pill">Ronda ${state.rondaNum}${totRondas ? ' / ' + totRondas : ''}</span>` : ''}
         <div class="torneo-meta">
           <span>Modalidad: <b>${labelModalidad(t.modalidad)}</b></span>
           <span>Formato: <b>${t.modalidad === 'individual_rotativo' ? 'Rotación individual' : (t.formato === 'todos_contra_todos' ? 'Todos contra todos' : 'Suizo')}</b></span>
           <span>Jugadores: <b>${state.jugadores.length} / ${jugadoresNecesarios()}</b></span>
-          <span>Ronda: <b>${state.rondaNum || '—'}</b></span>
+          <span>Rondas: <b>${state.rondaNum || '—'}${totRondas ? ' / ' + totRondas : ''}</b></span>
         </div>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -615,7 +645,18 @@
       fFormato.disabled = false;
       hint.textContent = '';
     }
+
+    const fNumeroRondas = document.getElementById('fNumeroRondas');
+    const rondasHint = document.getElementById('numeroRondasHint');
+    if (fFormato.value === 'todos_contra_todos') {
+      fNumeroRondas.disabled = true;
+      rondasHint.textContent = 'Se calcula sola según cuántas parejas se registren (todos contra todos).';
+    } else {
+      fNumeroRondas.disabled = false;
+      rondasHint.textContent = '';
+    }
   }
+  document.getElementById('fFormato').addEventListener('change', actualizarFormatoDisponible);
 
   function archivarTorneoActual() {
     if (!state.torneo) return;
@@ -638,6 +679,7 @@
       modalidad: document.getElementById('fModalidad').value,
       formato: document.getElementById('fFormato').value,
       numeroMesas: Math.max(1, +document.getElementById('fNumeroMesas').value || 1),
+      numeroRondas: Math.max(1, +document.getElementById('fNumeroRondas').value || 7),
       puntaje: Math.max(1, +document.getElementById('fPuntaje').value || 100),
       fecha: document.getElementById('fFecha').value,
       estado: 'programado',
@@ -677,6 +719,7 @@
           <span>Modalidad: <b>${labelModalidad(t.modalidad)}</b></span>
           <span>Formato: <b>${t.modalidad === 'individual_rotativo' ? 'Rotación individual' : (t.formato === 'todos_contra_todos' ? 'Todos contra todos' : 'Suizo')}</b></span>
           <span>Mesas: <b>${t.numeroMesas}</b></span>
+          <span>Rondas: <b>${t.formato === 'todos_contra_todos' ? (totalRondas() ?? 'según inscritos') : t.numeroRondas}</b></span>
           <span>Objetivo: <b>${t.puntaje} pts</b></span>
           <span>Programado: <b>${fmtFecha(t.fecha)}</b>${programadaFutura ? ' ⏳' : ''}</span>
         </div>
@@ -857,7 +900,7 @@
     archivarTorneoActual();
     state.torneo = {
       nombre: 'Torneo de ejemplo', modalidad: 'pareja_fija', formato: 'suizo',
-      numeroMesas: 1, puntaje: 100, fecha: nowLocalInputValue(), estado: 'programado', esEjemplo: true,
+      numeroMesas: 1, numeroRondas: 7, puntaje: 100, fecha: nowLocalInputValue(), estado: 'programado', esEjemplo: true,
     };
     state.jugadores = ['Ana Ramírez', 'Luis Gómez', 'Carla Torres', 'Pedro Díaz']
       .map(nombre => ({ id: 'j' + nextJugadorId++, nombre }));
@@ -977,9 +1020,9 @@
     });
 
     const siguienteNum = state.rondaNum + 1;
-    if (state.torneo.modalidad === 'pareja_fija' && state.torneo.formato === 'todos_contra_todos'
-        && siguienteNum > state.calendarioRR.length) {
-      alert('Ya se jugaron todas las rondas del calendario todos-contra-todos. El torneo está completo.');
+    const totRondas = totalRondas();
+    if (totRondas && siguienteNum > totRondas) {
+      alert(`Ya se jugaron las ${totRondas} rondas de este torneo. El torneo está completo — revisa el ranking final.`);
       guardarEstado();
       return;
     }
@@ -1025,13 +1068,16 @@
     }
 
     cronoWrap.style.display = '';
-    document.getElementById('rondaLabel').textContent = 'Ronda ' + state.rondaNum;
+    const totRondas = totalRondas();
+    document.getElementById('rondaLabel').textContent = 'Ronda ' + state.rondaNum + (totRondas ? ' / ' + totRondas : '');
 
     const pendientes = mesasPendientes();
+    const esUltimaRonda = totRondas && state.rondaNum >= totRondas;
     contenido.innerHTML = `
       <div class="ronda-status">
-        <button class="btn btn-gold" id="btnSiguienteRonda" ${todasFinalizadas() ? '' : 'disabled'}>Generar siguiente ronda</button>
+        <button class="btn btn-gold" id="btnSiguienteRonda" ${todasFinalizadas() && !esUltimaRonda ? '' : 'disabled'}>Generar siguiente ronda</button>
         ${!todasFinalizadas() ? `<span class="ronda-pendientes">${pendientes} mesa(s) todavía en curso — deben cerrarse antes de pasar de ronda</span>` : ''}
+        ${todasFinalizadas() && esUltimaRonda ? `<span class="ronda-pendientes">Torneo completo — se jugaron las ${totRondas} rondas.</span>` : ''}
       </div>
       <div class="mesa-tabs" id="mesaTabs"></div>
       <div id="mesaDetalle"></div>`;
@@ -1064,7 +1110,6 @@
     });
 
     const det = document.getElementById('mesaDetalle');
-    const puntosDefault = 28;
 
     if (mesa.finalizada) {
       const ganador = mesa.ganadorLado === 0 ? mesa.ladoA.nombre : mesa.ladoB.nombre;
@@ -1100,7 +1145,7 @@
         </div>
         <span class="step-label">3 · Puntos otorgados</span>
         <div class="puntos-row">
-          <input class="puntos-input" type="number" id="puntosInput" value="${puntosDefault}">
+          <input class="puntos-input" type="number" id="puntosInput" value="" placeholder="Ingrese los puntos aquí" min="0">
           <div class="puntos-quick">
             <button class="qbtn" data-add="10">+10</button>
             <button class="qbtn" data-add="20">+20</button>
@@ -1250,16 +1295,28 @@
         </div>`;
       return;
     }
+    const nombreCol = state.torneo?.modalidad === 'individual_rotativo' ? 'Jugador' : 'Pareja';
     const filas = [...entidades].sort((a, b) => b.diferencial - a.diferencial);
-    el.innerHTML = `<div class="card" style="max-width:640px;">` +
-      filas.map((f, i) => `
-        <div class="rank-row">
+    el.innerHTML = `<div class="card" style="max-width:640px;">
+      <div class="rank-grid rank-head">
+        <span></span>
+        <span>${nombreCol}</span>
+        <span style="text-align:right;">Ganadas — Perdidas</span>
+        <span style="text-align:right;">Diferencial</span>
+      </div>` +
+      filas.map((f, i) => {
+        const perdidas = f.partidasJugadas - f.partidasGanadas;
+        const difPositivo = f.diferencial >= 0;
+        return `
+        <div class="rank-grid rank-row-grid">
           <span class="rank-pos">${i + 1}</span>
           <span class="rank-name">${f.nombre}</span>
-          <span class="rank-stat">${f.partidasGanadas}-${f.partidasJugadas - f.partidasGanadas} · ${f.diferencial >= 0 ? '+' : ''}${f.diferencial}</span>
-        </div>`).join('') +
+          <span class="rank-col-record">${f.partidasGanadas} — ${perdidas}</span>
+          <span class="rank-col-dif" style="color:${difPositivo ? 'var(--green-ok)' : 'var(--oxblood)'}">${difPositivo ? '+' : ''}${f.diferencial}</span>
+        </div>`;
+      }).join('') +
       `</div>
-      <div class="field-hint" style="max-width:640px;">Formato: victorias-derrotas · diferencial acumulado. Se actualiza al generar cada nueva ronda.</div>`;
+      <div class="field-hint" style="max-width:640px;">"Ganadas — Perdidas" son partidas completas ganadas o perdidas por ${nombreCol.toLowerCase()}. "Diferencial" es la suma de puntos a favor menos puntos en contra en todas las rondas jugadas. Se actualiza al generar cada nueva ronda.</div>`;
   }
 
   // Arranque: la app real no se muestra hasta iniciar sesión con un código válido (ver login-gate).
